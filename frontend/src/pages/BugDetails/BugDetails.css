@@ -1,0 +1,4 @@
+[data-testid='bug-details-page'] {
+  max-width: 800px;
+  margin: 0 auto;
+}

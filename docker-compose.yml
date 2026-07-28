@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: bug-tracker-mongo
+    restart: unless-stopped
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo-data:/data/db
+
+  backend:
+    build:
+      context: ./backend
+    container_name: bug-tracker-backend
+    restart: unless-stopped
+    depends_on:
+      - mongo
+    environment:
+      PORT: 5050
+      MONGO_URI: mongodb://mongo:27017/bug-tracker
+      JWT_SECRET: ${JWT_SECRET:-change-this-secret-in-production}
+      JWT_EXPIRES_IN: 1d
+      CORS_ORIGIN: http://localhost:5173
+      SEED_ADMIN_NAME: Admin
+      SEED_ADMIN_EMAIL: admin@test.com
+      SEED_ADMIN_PASSWORD: Admin@123
+    ports:
+      - '5050:5050'
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: http://localhost:5050/api
+    container_name: bug-tracker-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - '5173:80'
+
+volumes:
+  mongo-data:
