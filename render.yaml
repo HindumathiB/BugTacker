@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: bug-tracker-backend
+    runtime: node
+    rootDir: backend
+    plan: free
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_EXPIRES_IN
+        value: 1d
+      - key: CORS_ORIGIN
+        sync: false
+      - key: SEED_ADMIN_NAME
+        value: Admin
+      - key: SEED_ADMIN_EMAIL
+        value: admin@test.com
+      - key: SEED_ADMIN_PASSWORD
+        sync: false

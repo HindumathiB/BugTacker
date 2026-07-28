@@ -5,10 +5,25 @@ import apiRoutes from './routes';
 import healthRoutes from './routes/health.routes';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware';
 
+const allowedOrigins = env.corsOrigin
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 export function createApp(): Application {
   const app = express();
 
-  app.use(cors({ origin: env.corsOrigin }));
+  app.use(
+    cors({
+      origin(origin, callback) {
+        if (!origin || allowedOrigins.includes(origin)) {
+          callback(null, true);
+        } else {
+          callback(new Error(`Origin ${origin} is not allowed by CORS`));
+        }
+      },
+    })
+  );
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 

@@ -245,6 +245,86 @@ To also remove the MongoDB volume:
 docker compose down -v
 ```
 
+## Deployment (Render + Vercel)
+
+This deploys the backend to Render and the frontend to Vercel, backed by a MongoDB Atlas cluster (Render does not host MongoDB itself).
+
+### 1. Create a MongoDB Atlas cluster
+
+1. Sign up at https://www.mongodb.com/atlas and create a free (M0) cluster.
+2. Under **Database Access**, create a user with a username/password.
+3. Under **Network Access**, add `0.0.0.0/0` (allow access from anywhere) since Render's outbound IPs aren't static on the free plan.
+4. Get the connection string from **Connect → Drivers**, it looks like:
+   `mongodb+srv://<user>:<password>@<cluster>.mongodb.net/bug-tracker?retryWrites=true&w=majority`
+
+### 2. Deploy the backend to Render
+
+**Option A — Blueprint (uses the included `render.yaml`)**
+
+1. Push this repo to GitHub (already done).
+2. In the Render dashboard: **New → Blueprint**, select this repo. Render reads `render.yaml` at the repo root and creates the `bug-tracker-backend` web service with `rootDir: backend`.
+3. You'll be prompted to fill in the vars marked `sync: false`: `MONGO_URI`, `JWT_SECRET`, `CORS_ORIGIN`, `SEED_ADMIN_PASSWORD`.
+
+**Option B — Manual web service**
+
+1. In the Render dashboard: **New → Web Service**, connect this repo.
+2. Root Directory: `backend`
+3. Runtime: Node
+4. Build Command: `npm install --include=dev && npm run build`
+   (the `--include=dev` matters — `typescript` is a devDependency and Render can otherwise skip it)
+5. Start Command: `npm start`
+6. Health Check Path: `/health`
+7. Add environment variables:
+   - `MONGO_URI` — your Atlas connection string
+   - `JWT_SECRET` — a long random string
+   - `JWT_EXPIRES_IN` — `1d`
+   - `CORS_ORIGIN` — leave as `http://localhost:5173` for now; you'll update it once the Vercel URL exists (step 4)
+   - `SEED_ADMIN_NAME` — `Admin`
+   - `SEED_ADMIN_EMAIL` — `admin@test.com`
+   - `SEED_ADMIN_PASSWORD` — `Admin@123`
+
+   Do **not** set `PORT` — Render injects it automatically and the app already reads `process.env.PORT`.
+
+Once deployed, Render gives you a URL like `https://bug-tracker-backend.onrender.com`. Confirm it's alive:
+
+```bash
+curl https://bug-tracker-backend.onrender.com/health
+# {"status":"UP"}
+```
+
+### 3. Seed the production database
+
+Open the **Shell** tab on the Render service and run:
+
+```bash
+npm run seed:prod
+```
+
+This runs the compiled `dist/seed/seed.js` (no `ts-node` needed at runtime) and inserts the admin user + 5 sample bugs.
+
+### 4. Deploy the frontend to Vercel
+
+1. In the Vercel dashboard: **Add New → Project**, import this repo.
+2. Root Directory: `frontend` (Vercel auto-detects the Vite framework preset once you set this).
+3. Build Command: `npm run build` (default), Output Directory: `dist` (default).
+4. Add an environment variable:
+   - `VITE_API_BASE_URL` = `https://bug-tracker-backend.onrender.com/api` (use your actual Render URL)
+5. Deploy. Vercel gives you a URL like `https://bug-tracker.vercel.app`.
+
+The included `frontend/vercel.json` adds a catch-all rewrite to `index.html`, which is required for React Router's client-side routes (e.g. `/dashboard`, `/bugs/:id`) to work on direct load/refresh instead of 404ing.
+
+### 5. Close the loop: update CORS on the backend
+
+Now that you have the final Vercel URL, go back to the Render service's environment variables and update:
+
+```
+CORS_ORIGIN=https://bug-tracker.vercel.app
+```
+
+(Comma-separate multiple origins if needed, e.g. to also allow `http://localhost:5173` for local testing against the deployed API.) Save — Render redeploys automatically. Then log in at your Vercel URL with `admin@test.com` / `Admin@123`.
+
+> **Note on Render's free tier:** free web services spin down after ~15 minutes of inactivity and take 30–60 seconds to wake up on the next request — the first login attempt after idle time may time out or feel slow. This is expected on the free plan, not a bug.
+
 ## Screenshots
 
 > Replace these placeholders with actual screenshots once the app is running.
