@@ -247,81 +247,77 @@ docker compose down -v
 
 ## Deployment (Render + Vercel)
 
-This deploys the backend to Render and the frontend to Vercel, backed by a MongoDB Atlas cluster (Render does not host MongoDB itself).
+### Part 0 — Database (MongoDB Atlas)
 
-### 1. Create a MongoDB Atlas cluster
+1. Go to [mongodb.com/atlas](https://mongodb.com/atlas) → sign up (free).
+2. Create a free cluster (M0).
+3. **Database Access** → add a user + password (write it down).
+4. **Network Access** → Add IP → Allow access from anywhere (`0.0.0.0/0`).
+5. Click **Connect → Drivers** → copy the connection string (looks like `mongodb+srv://user:pass@...`). Keep it safe — you'll paste it into Render as `MONGO_URI`.
 
-1. Sign up at https://www.mongodb.com/atlas and create a free (M0) cluster.
-2. Under **Database Access**, create a user with a username/password.
-3. Under **Network Access**, add `0.0.0.0/0` (allow access from anywhere) since Render's outbound IPs aren't static on the free plan.
-4. Get the connection string from **Connect → Drivers**, it looks like:
-   `mongodb+srv://<user>:<password>@<cluster>.mongodb.net/bug-tracker?retryWrites=true&w=majority`
+### Part 1 — Backend on Render (do this first)
 
-### 2. Deploy the backend to Render
+1. Go to [render.com](https://render.com) → sign up with GitHub.
+2. Click **New + → Web Service**.
+3. Choose **Build and deploy from a Git repository** → connect the repo `HindumathiB/BugTacker`.
+4. Fill the settings:
 
-**Option A — Blueprint (uses the included `render.yaml`)**
+   | Setting | Value |
+   |---|---|
+   | Name | `bug-tracker-backend` (any name) |
+   | Region | closest to you |
+   | Root Directory | `backend` |
+   | Branch | `main` |
+   | Runtime | Node |
+   | Build Command | `npm install --include=dev && npm run build` |
+   | Start Command | `npm start` |
+   | Instance Type | Free |
 
-1. Push this repo to GitHub (already done).
-2. In the Render dashboard: **New → Blueprint**, select this repo. Render reads `render.yaml` at the repo root and creates the `bug-tracker-backend` web service with `rootDir: backend`.
-3. You'll be prompted to fill in the vars marked `sync: false`: `MONGO_URI`, `JWT_SECRET`, `CORS_ORIGIN`, `SEED_ADMIN_PASSWORD`.
+   The `--include=dev` matters — `typescript` is a devDependency and Render can otherwise skip it, which breaks the build.
 
-**Option B — Manual web service**
+5. Scroll to **Environment Variables** → click **Add** and enter these one by one:
 
-1. In the Render dashboard: **New → Web Service**, connect this repo.
-2. Root Directory: `backend`
-3. Runtime: Node
-4. Build Command: `npm install --include=dev && npm run build`
-   (the `--include=dev` matters — `typescript` is a devDependency and Render can otherwise skip it)
-5. Start Command: `npm start`
-6. Health Check Path: `/health`
-7. Add environment variables:
-   - `MONGO_URI` — your Atlas connection string
-   - `JWT_SECRET` — a long random string
-   - `JWT_EXPIRES_IN` — `1d`
-   - `CORS_ORIGIN` — leave as `http://localhost:5173` for now; you'll update it once the Vercel URL exists (step 4)
-   - `SEED_ADMIN_NAME` — `Admin`
-   - `SEED_ADMIN_EMAIL` — `admin@test.com`
-   - `SEED_ADMIN_PASSWORD` — `Admin@123`
+   | Key | Value |
+   |---|---|
+   | `MONGO_URI` | (paste your MongoDB string from Part 0) |
+   | `JWT_SECRET` | any long random text, e.g. `mySuperSecret123!@#` |
+   | `JWT_EXPIRES_IN` | `1d` |
+   | `SEED_ADMIN_NAME` | `Admin` |
+   | `SEED_ADMIN_EMAIL` | `admin@test.com` |
+   | `SEED_ADMIN_PASSWORD` | `Admin@123` |
+   | `CORS_ORIGIN` | leave as `http://localhost:5173` for now — you'll fill it in after Part 3 |
 
-   Do **not** set `PORT` — Render injects it automatically and the app already reads `process.env.PORT`.
+   Do **not** add a `PORT` variable — Render injects one automatically and the app already reads `process.env.PORT`.
 
-Once deployed, Render gives you a URL like `https://bug-tracker-backend.onrender.com`. Confirm it's alive:
+6. (Optional shortcut instead of steps 2–5: **New + → Blueprint**, select this repo — Render reads the included `render.yaml` and pre-fills the service, prompting you only for the vars marked `sync: false`.)
+7. Click **Create Web Service**. Wait ~3–5 minutes for it to build.
+8. When done, you'll see a URL like `https://bug-tracker-backend.onrender.com`.
+9. Test it: open `https://bug-tracker-backend.onrender.com/health` in your browser → you should see `{"status":"UP"}`. ✅
+10. Seed the database: open the **Shell** tab on the Render service and run `npm run seed:prod` (compiles to `dist/seed/seed.js`, no `ts-node` needed at runtime). This inserts the admin user + 5 sample bugs.
 
-```bash
-curl https://bug-tracker-backend.onrender.com/health
-# {"status":"UP"}
-```
+### Part 2 — Website on Vercel
 
-### 3. Seed the production database
+1. Go to [vercel.com](https://vercel.com) → sign up with GitHub.
+2. Click **Add New… → Project**.
+3. Find `HindumathiB/BugTacker` → click **Import**.
+4. Set **Root Directory** to `frontend` — Vercel then auto-detects the Vite framework preset; leave build settings as-is. (The included `frontend/vercel.json` adds a catch-all rewrite to `index.html`, required for React Router's client-side routes like `/dashboard` and `/bugs/:id` to work on direct load/refresh instead of 404ing.)
+5. Open **Environment Variables** and add one:
 
-Open the **Shell** tab on the Render service and run:
+   | Key | Value |
+   |---|---|
+   | `VITE_API_BASE_URL` | `https://bug-tracker-backend.onrender.com/api` (your Render URL from Part 1, ending in `/api`) |
 
-```bash
-npm run seed:prod
-```
+   ⚠️ Skip this and the site will open but every API call will fail.
 
-This runs the compiled `dist/seed/seed.js` (no `ts-node` needed at runtime) and inserts the admin user + 5 sample bugs.
+6. Click **Deploy**. Wait ~1–2 minutes.
+7. You'll get a website link like `https://bug-tracker.vercel.app`. Copy it.
 
-### 4. Deploy the frontend to Vercel
+### Part 3 — Connect the two (important!)
 
-1. In the Vercel dashboard: **Add New → Project**, import this repo.
-2. Root Directory: `frontend` (Vercel auto-detects the Vite framework preset once you set this).
-3. Build Command: `npm run build` (default), Output Directory: `dist` (default).
-4. Add an environment variable:
-   - `VITE_API_BASE_URL` = `https://bug-tracker-backend.onrender.com/api` (use your actual Render URL)
-5. Deploy. Vercel gives you a URL like `https://bug-tracker.vercel.app`.
-
-The included `frontend/vercel.json` adds a catch-all rewrite to `index.html`, which is required for React Router's client-side routes (e.g. `/dashboard`, `/bugs/:id`) to work on direct load/refresh instead of 404ing.
-
-### 5. Close the loop: update CORS on the backend
-
-Now that you have the final Vercel URL, go back to the Render service's environment variables and update:
-
-```
-CORS_ORIGIN=https://bug-tracker.vercel.app
-```
-
-(Comma-separate multiple origins if needed, e.g. to also allow `http://localhost:5173` for local testing against the deployed API.) Save — Render redeploys automatically. Then log in at your Vercel URL with `admin@test.com` / `Admin@123`.
+1. Go back to Render → your service → **Environment**.
+2. Find `CORS_ORIGIN` → set it to your Vercel website link (e.g. `https://bug-tracker.vercel.app`) — no slash at the end. (Comma-separate multiple origins if you also want `http://localhost:5173` to keep working for local testing against the deployed API.)
+3. Click **Save** → Render restarts automatically (~1 min).
+4. Log in at your Vercel URL with `admin@test.com` / `Admin@123`.
 
 > **Note on Render's free tier:** free web services spin down after ~15 minutes of inactivity and take 30–60 seconds to wake up on the next request — the first login attempt after idle time may time out or feel slow. This is expected on the free plan, not a bug.
 
